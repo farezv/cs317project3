@@ -13,18 +13,46 @@
 #include <arpa/inet.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <unistd.h>
+
+#include <errno.h>
 
 #define PORT "3490"  // the port users will be connecting to
 
 #define BACKLOG 10     // how many pending connections queue will hold
 
+struct fdstruct {       // Jason recommended I store my file descriptors in a struct
+    int filedescriptor;
+};
+
 /*
 * serve_client() given by CS317 instructors
 */
 void *serve_client(void *ptr) {
+  printf("code reaches serve_client\n");
+  // Need to get struct back.
+  struct fdstruct *clientfdst = (struct fdstruct*) ptr;
   // Converts ptr back to integer.
-  int client_fd = (int) (intptr_t) ptr;
-  // ...
+  int client_fd = clientfdst->filedescriptor; // read from this port until there isn't anything to read
+
+
+  char *buf; //Luca said it's supposed to be a pointer to char.
+  // length of "SETUP movie.Mjpeg RTSP/1.0\nCSeq: 1\nTransport: RTP/UDP; client_port= 25000\n\n" including whitespace & /n
+  int len = 80;
+  int flags = 0; //Beej's reccomends it we set to zero.
+  // ...start listening to RTP commands
+  int listening = recv(client_fd, buf, len, flags);
+  if (listening == 0) {
+    printf("client closed connection\n");
+  } 
+
+  if (listening == -1) {
+    printf("There's an error while reading RTSP requests: %s\n", strerror(errno));
+  }   
+  else {
+    printf("%d bytes were written into the buffer", listening);
+  }
+
 }
 
 // get sockaddr, IPv4 or IPv6: from Beej's guide
@@ -103,7 +131,7 @@ int main(void)
         new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
         if (new_fd == -1) {
             perror("accept");
-            continue;
+            continue;   
         }
         // Reading socket addresses and printing them out.
         inet_ntop(their_addr.ss_family,
@@ -114,12 +142,11 @@ int main(void)
         // pthread code given by CS317 instructors
         
         // Required variables
-
-
-        int client_fd;    // Socket returned by accept
+        struct fdstruct newfdst;
+        newfdst.filedescriptor = new_fd;
         pthread_t thread; // Thread to be created
         // Creates the thread and calls the function serve_client.
-        pthread_create(&thread, NULL, serve_client, (void *) (intptr_t) client_fd);
+        pthread_create(&thread, NULL, serve_client, (void *) &newfdst); //
         // Detaches the thread. This means that, once the thread finishes, it is destroyed.
         pthread_detach(thread);
         // ...
