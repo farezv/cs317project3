@@ -31,28 +31,54 @@ struct fdstruct {       // Jason recommended I store my file descriptors in a st
 void *serve_client(void *ptr) {
   printf("code reaches serve_client\n");
   // Need to get struct back.
-  struct fdstruct *clientfdst = (struct fdstruct*) ptr;
+  
   // Converts ptr back to integer.
-  int client_fd = clientfdst->filedescriptor; // read from this port until there isn't anything to read
-
-
-  char *buf; //Luca said it's supposed to be a pointer to char.
+  int client_fd = (int) (intptr_t) ptr;
+  //int client_fd = clientfdst->filedescriptor; // read from this port until there isn't anything to read
+  
+    
+  int len = 71;
+  char *buf[len]; //Luca said it's supposed to be a pointer to char.
   // length of "SETUP movie.Mjpeg RTSP/1.0\nCSeq: 1\nTransport: RTP/UDP; client_port= 25000\n\n" including whitespace & /n
-  int len = 80;
+  
   int flags = 0; //Beej's reccomends it we set to zero.
   // ...start listening to RTP commands
+ 
   int listening = recv(client_fd, buf, len, flags);
+  //error checks
   if (listening == 0) {
     printf("client closed connection\n");
   } 
 
   if (listening == -1) {
     printf("There's an error while reading RTSP requests: %s\n", strerror(errno));
+    printf("client_fd just after recv() returns -1 = %d\n", client_fd);
   }   
   else {
-    printf("%d bytes were written into the buffer", listening);
-  }
+    printf("%d bytes were written into the buffer\n", listening);
 
+    char *s = "S";
+    char *t = "T";
+    char *p = "P";
+    char *a = "A";
+    
+    char first = buf[0];
+    char second = buf[1];
+    printf("The first letter of the request is %s\n", first);
+    if ( !strcmp(s,first) ) {
+        //deal with "SETUP..."
+    }
+    if ( !strcmp(t,first) ) {
+        //deal with "TEARDOWN..."
+    }
+    if ( !strcmp(p,first) && !strcmp(a,second) ) { // if first letter is p and second a
+        //deal with "PAUSE..."
+    }
+    else {
+        //deal with "PLAY..."
+    }
+  }  
+  return;
 }
 
 // get sockaddr, IPv4 or IPv6: from Beej's guide
@@ -139,19 +165,22 @@ int main(void)
             s, sizeof s);
         printf("server: got connection from %s\n", s);
 
+        //serve_client((void *) (intptr_t) new_fd); // single client non-threaded
+
         // pthread code given by CS317 instructors
         
         // Required variables
-        struct fdstruct newfdst;
-        newfdst.filedescriptor = new_fd;
+        /*truct fdstruct newfdst;
+        newfdst.filedescriptor = new_fd;*/
         pthread_t thread; // Thread to be created
         // Creates the thread and calls the function serve_client.
-        pthread_create(&thread, NULL, serve_client, (void *) &newfdst); //
+        printf("new_fd before pthread_create() = %d\n", new_fd);
+        pthread_create(&thread, NULL, serve_client, (void *) (intptr_t) new_fd); // (void *) &newfdst for last param for the struct way
         // Detaches the thread. This means that, once the thread finishes, it is destroyed.
         pthread_detach(thread);
         // ...
 
-        close(new_fd);  // parent doesn't need this
+        //close(new_fd);  // parent doesn't need this
     }
 
     return 0;
