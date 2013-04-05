@@ -24,6 +24,27 @@
 struct fdstruct {       // Jason recommended I store my file descriptors in a struct
     int filedescriptor;
 };
+// Made the following variables global because I need them in multiple funtions
+  int len = 71;
+  int flags = 0; //Beej's reccomends it we set to zero.
+  
+/* Deals with a setup request
+*/
+void setup(int client_fd, char buf[]) {
+    printf("code reaches setup\n");
+    char *msg = "RTSP/1.0 200 OK\nCSeq: 1\nSession: 123456\n\n";
+    int bytes_sent = send(client_fd,msg,strlen(msg),flags);
+    // error checks
+    if (bytes_sent == -1) {
+    printf("There's an error while sending RTSP response: %s\n", strerror(errno));
+    printf("client_fd just after send() returns -1 = %d\n", client_fd); // to see if fd was over written
+    } else
+    if (bytes_sent < strlen(msg)) {
+        printf("Response was not completely sent\n");
+    } else {
+        printf("%d bytes were sent to the buffer\n", bytes_sent);
+    }
+}
 
 /*
 * serve_client() given by CS317 instructors
@@ -34,17 +55,10 @@ void *serve_client(void *ptr) {
   
   // Converts ptr back to integer.
   int client_fd = (int) (intptr_t) ptr;
-  //int client_fd = clientfdst->filedescriptor; // read from this port until there isn't anything to read
-  
-    
-  int len = 71;
-  char *buf[len]; //Luca said it's supposed to be a pointer to char.
-  // length of "SETUP movie.Mjpeg RTSP/1.0\nCSeq: 1\nTransport: RTP/UDP; client_port= 25000\n\n" including whitespace & /n
-  
-  int flags = 0; //Beej's reccomends it we set to zero.
-  // ...start listening to RTP commands
- 
-  int listening = recv(client_fd, buf, len, flags);
+  // Every client has their own buffer and vice versa.
+  char buf[len];
+
+  int listening = recv(client_fd, &buf, len, flags);
   //error checks
   if (listening == 0) {
     printf("client closed connection\n");
@@ -53,31 +67,32 @@ void *serve_client(void *ptr) {
   if (listening == -1) {
     printf("There's an error while reading RTSP requests: %s\n", strerror(errno));
     printf("client_fd just after recv() returns -1 = %d\n", client_fd);
+    return;
   }   
   else {
-    printf("%d bytes were written into the buffer\n", listening);
+    printf("%d bytes recieved in the buffer\n", listening);
 
-    char *s = "S";
-    char *t = "T";
-    char *p = "P";
-    char *a = "A";
+    char s = 'S';
+    char t = 'T';
+    char p = 'P';
+    char a = 'A';
     
-    char first = buf[0];
-    char second = buf[1];
-    printf("The first letter of the request is %s\n", first);
-    if ( !strcmp(s,first) ) {
-        //deal with "SETUP..."
-    }
-    if ( !strcmp(t,first) ) {
-        //deal with "TEARDOWN..."
-    }
-    if ( !strcmp(p,first) && !strcmp(a,second) ) { // if first letter is p and second a
-        //deal with "PAUSE..."
+    printf("The first letter of the request is %c\n", buf[0]);
+    if ( s == buf[0] ) {
+        printf("deal with SETUP...\n");
+        setup(client_fd, buf); // passing the fd & buf so setup acts on that buf for that client
+    } else
+    if ( t == buf[0] ) {
+        printf("deal with TEARDOWN...\n");
+    } else
+    if ( (p == buf[0]) && (a == buf[1]) ) { // if first letter is p and second a
+        printf("deal with PAUSE...\n");
     }
     else {
-        //deal with "PLAY..."
+        printf("deal with PLAY...\n");
     }
-  }  
+  }
+  printf("last line of serve_client\n"); 
   return;
 }
 
