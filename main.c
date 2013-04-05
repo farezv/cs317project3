@@ -17,83 +17,100 @@
 
 #include <errno.h>
 
+#include <cv.h>
+#include <highgui.h>
+
+CvCapture *video;
+IplImage *image;
+CvMat *thumb;
+CvMat *encoded;
+
 #define PORT "3490"  // the port users will be connecting to
 
-#define BACKLOG 10     // how many pending connections queue will hold
+#define BACKLOG 10   // how many pending connections queue will hold
 
-struct fdstruct {       // Jason recommended I store my file descriptors in a struct
-    int filedescriptor;
-};
 // Made the following variables global because I need them in multiple funtions
+  
   int len = 71;
   int flags = 0; //Beej's reccomends it we set to zero.
   
-/* Deals with a setup request
+/* Deals with a setup request and opens the video file.
 */
 void setup(int client_fd, char buf[]) {
     printf("code reaches setup\n");
-    char *msg = "RTSP/1.0 200 OK\nCSeq: 1\nSession: 123456\n\n";
-    int bytes_sent = send(client_fd,msg,strlen(msg),flags);
-    // error checks
-    if (bytes_sent == -1) {
-    printf("There's an error while sending RTSP response: %s\n", strerror(errno));
-    printf("client_fd just after send() returns -1 = %d\n", client_fd); // to see if fd was over written
-    } else
-    if (bytes_sent < strlen(msg)) {
-        printf("Response was not completely sent\n");
+
+    // Open the video file.
+    
+    video = cvCaptureFromFile("sample.avi");
+    if (!video) {
+        printf("File doesn't exist or can't be captured as a video file\n");
+
     } else {
-        printf("%d bytes were sent to the buffer\n", bytes_sent);
+        char *msg = "RTSP/1.0 200 OK\nCSeq: 1\nSession: 123456\n\n";
+        int bytes_sent = send(client_fd,msg,strlen(msg),flags);
+        // error checks
+        if (bytes_sent == 0) {
+            printf("No bytes were sent or client closed connection\n");
+        } else
+        if (bytes_sent == -1) {
+        printf("There's an error while sending RTSP response: %s\n", strerror(errno));
+        printf("client_fd just after send() returns -1 = %d\n", client_fd); // to see if fd was over written
+        } else
+        if (bytes_sent < strlen(msg)) {
+            printf("Response was not completely sent\n");
+        } else {
+            printf("%d bytes were sent to the buffer\n", bytes_sent);
+        }
     }
+
 }
 
 /*
 * serve_client() given by CS317 instructors
 */
 void *serve_client(void *ptr) {
-  printf("code reaches serve_client\n");
-  // Need to get struct back.
   
   // Converts ptr back to integer.
   int client_fd = (int) (intptr_t) ptr;
+  
   // Every client has their own buffer and vice versa.
   char buf[len];
 
+  while (client_fd != -1) {
   int listening = recv(client_fd, &buf, len, flags);
+  
   //error checks
+  
   if (listening == 0) {
     printf("client closed connection\n");
-  } 
+  } else
 
   if (listening == -1) {
     printf("There's an error while reading RTSP requests: %s\n", strerror(errno));
     printf("client_fd just after recv() returns -1 = %d\n", client_fd);
-    return;
-  }   
-  else {
-    printf("%d bytes recieved in the buffer\n", listening);
-
-    char s = 'S';
-    char t = 'T';
-    char p = 'P';
-    char a = 'A';
+  } else 
+  { printf("%d bytes recieved in the buffer\n", listening);
     
-    printf("The first letter of the request is %c\n", buf[0]);
-    if ( s == buf[0] ) {
+    // Deal with a successful RTSP request
+    
+    printf("Client: %s\n", buf);
+    if ( 'S' == buf[0] ) {
         printf("deal with SETUP...\n");
+        //const char* filename = // figure out how to get read file name from setup request
         setup(client_fd, buf); // passing the fd & buf so setup acts on that buf for that client
     } else
-    if ( t == buf[0] ) {
+    if ( 'T' == buf[0] ) {
         printf("deal with TEARDOWN...\n");
     } else
-    if ( (p == buf[0]) && (a == buf[1]) ) { // if first letter is p and second a
+    if ( ('P' == buf[0]) && ('A' == buf[1]) ) { // if first letter is p and second a
         printf("deal with PAUSE...\n");
     }
     else {
         printf("deal with PLAY...\n");
     }
   }
+  }
   printf("last line of serve_client\n"); 
-  return;
 }
 
 // get sockaddr, IPv4 or IPv6: from Beej's guide
@@ -115,7 +132,7 @@ int main(void)
     struct addrinfo hints, *servinfo, *p;
     struct sockaddr_storage their_addr; // connector's address information
     socklen_t sin_size;
-    struct sigaction sa;
+    //struct sigaction sa;
     int yes=1;
     char s[INET6_ADDRSTRLEN];
     int rv;
