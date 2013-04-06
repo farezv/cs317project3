@@ -23,7 +23,7 @@ LDLIBS = -lrt -lm $(shell pkg-config --libs opencv)
 # should change the list. Note that since no command is given to
 # create the file, a default rule is used, which calls the compiler
 # (CC variable above) with LDFLAGS and LDLIBS.
-#rtspd: rtspd.o main.o
+rtspd: rtspd.o main.o
 #cloudrtspd: cloudrtspd.o main.o
 
 # This rule indicates that rtspd.o depends on rtspd.c and rtspd.h,
@@ -34,9 +34,9 @@ LDLIBS = -lrt -lm $(shell pkg-config --libs opencv)
 # since the object is based on that file. Since no command is given to
 # create the file, a default rule is used, which calls the compiler
 # (CC variable above) with CFLAGS.
-#rtspd.o: rtspd.c rtspd.h
+rtspd.o: rtspd.c rtspd.h
 #cloudrtspd.o: cloudrtspd.c rtspd.h
-main.o: main.c
+main.o: main.c main.h
 
 # A clean rule is a good practice to simplify the removal of all
 # generated files. If you run 'make clean' in a terminal, all these
@@ -45,4 +45,4 @@ main.o: main.c
 # expect, or when you need to submit (handin) the files without the
 # object files.
 #clean:
-#	-rm -rf rtspd.o main.o cloudrtspd.o rtspd cloudrtspd
+#	-rm -rf main.o

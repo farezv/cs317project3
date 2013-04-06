@@ -20,6 +20,17 @@
 #include <cv.h>
 #include <highgui.h>
 
+#include <sys/time.h>
+#include <signal.h>
+#include <time.h>
+
+// This struct is created to save information that will be needed by the timer,
+// such as socket file descriptors, frame numbers and video captures.
+struct send_frame_data {
+  int socket_fd;
+  // other fields
+};
+
 CvCapture *video;
 IplImage *image;
 CvMat *thumb;
@@ -31,7 +42,7 @@ CvMat *encoded;
 
 // Made the following variables global because I need them in multiple funtions
   
-  int len = 71;
+  int len = 512;
   int flags = 0; //Beej's reccomends it we set to zero.
   
 /* Deals with a setup request and opens the video file.
@@ -41,7 +52,7 @@ void setup(int client_fd, char buf[]) {
 
     // Open the video file.
     
-    video = cvCaptureFromFile("sample.avi");
+    video = cvCaptureFromFile("movie.Mjpeg");
     if (!video) {
         printf("File doesn't exist or can't be captured as a video file\n");
 
@@ -65,6 +76,50 @@ void setup(int client_fd, char buf[]) {
 
 }
 
+/* Deals with play request, starts the timer, parses the frame
+*/
+void play(int client_fd, char buf[]) {
+    printf("code reaches play\n");
+
+    // The following snippet is used to create and start a new timer that runs
+    // every 40 ms.
+    struct send_frame_data data; // Set fields as necessary
+    struct sigevent play_event;
+    timer_t play_timer;
+    struct itimerspec play_interval;
+
+    memset(&play_event, 0, sizeof(play_event));
+    play_event.sigev_notify = SIGEV_THREAD;
+    play_event.sigev_value.sival_ptr = &data;
+    play_event.sigev_notify_function = send_frame;
+
+    play_interval.it_interval.tv_sec = 0;
+    play_interval.it_interval.tv_nsec = 40 * 1000000; // 40 ms in ns
+    play_interval.it_value.tv_sec = 0;
+    play_interval.it_value.tv_nsec = 1; // can't be zero
+
+    timer_create(CLOCK_REALTIME, &play_event, &play_timer);
+    timer_settime(play_timer, 0, &play_interval, NULL);
+
+
+
+}
+
+/* Deals with pause request, stops the timer and deletes it
+*/ void pause(int client_fd, char buf[]) {
+    // The following snippet is used to stop a currently running timer. The current
+    // task is not interrupted, only future tasks are stopped.
+    play_interval.it_interval.tv_sec = 0;
+    play_interval.it_interval.tv_nsec = 0;
+    play_interval.it_value.tv_sec = 0;
+    play_interval.it_value.tv_nsec = 0;
+    timer_settime(play_timer, 0, &play_interval, NULL);
+
+
+    // The following line is used to delete a timer. Delete if the last frame was sent through.
+    //timer_delete(play_timer);
+    }
+
 /*
 * serve_client() given by CS317 instructors
 */
@@ -75,9 +130,9 @@ void *serve_client(void *ptr) {
   
   // Every client has their own buffer and vice versa.
   char buf[len];
-
-  while (client_fd != -1) {
-  int listening = recv(client_fd, &buf, len, flags);
+  int listening = 1;
+  while (listening) {
+  listening = recv(client_fd, &buf, len, flags);
   
   //error checks
   
@@ -107,10 +162,11 @@ void *serve_client(void *ptr) {
     }
     else {
         printf("deal with PLAY...\n");
+        play(client_fd, buf);
     }
   }
   }
-  printf("last line of serve_client\n"); 
+  printf("last line of serve_client()\n");
 }
 
 // get sockaddr, IPv4 or IPv6: from Beej's guide
