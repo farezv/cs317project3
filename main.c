@@ -44,6 +44,52 @@ CvMat *encoded;
   
   int len = 512;
   int flags = 0; //Beej's reccomends it we set to zero.
+  int client_fd;
+
+// Global timer variables because pause() doesn't know what play_interval and play_timer are
+  timer_t play_timer;
+  struct itimerspec play_interval;  
+
+/* This function will be called when the timer ticks 
+*/
+void send_frame(union sigval sv_data) {
+  printf("code reaches send_frame()\n");
+  struct send_frame_data *data = (struct send_frame_data *) sv_data.sival_ptr;
+    // You may retrieve information from the caller using data->field_name
+    
+    // Obtain the next frame from the video file
+    image = cvQueryFrame(video);
+    if (!image) {
+      // Next frame doesn't exist or can't be obtained.
+    }
+
+    // Convert the frame to a smaller size (WIDTH x HEIGHT)
+    thumb = cvCreateMat(240, 320, CV_8UC3);
+    cvResize(image, thumb, CV_INTER_AREA);
+
+    // Encode the frame in JPEG format with JPEG quality 30%.
+    const static int encodeParams[] = { CV_IMWRITE_JPEG_QUALITY, 30 };
+    encoded = cvEncodeImage(".jpeg", thumb, encodeParams);
+    // After the call above, the encoded data is in encoded->data.ptr
+    // and has a length of encoded->cols bytes. GCC complains about variable sized obj not being initialized
+    char* frameBuf[] = encoded->data.ptr;
+    int frameDataLength = encoded->cols;
+    int bytes_sent = send(client_fd,frameBuf,frameDataLength,flags);
+        // error checks
+        if (bytes_sent == 0) {
+            printf("No bytes were sent or client closed connection\n");
+        } else
+        if (bytes_sent == -1) {
+        printf("There's an error while sending RTSP response: %s\n", strerror(errno));
+        printf("client_fd just after send() returns -1 = %d\n", client_fd); // to see if fd was over written
+        } else
+        if (bytes_sent < frameDataLength) {
+            printf("Frame data was not completely sent\n");
+        } else {
+            printf("%d bytes were sent to the buffer\n", bytes_sent);
+        }
+
+}
   
 /* Deals with a setup request and opens the video file.
 */
@@ -81,13 +127,27 @@ void setup(int client_fd, char buf[]) {
 void play(int client_fd, char buf[]) {
     printf("code reaches play\n");
 
+    char *msg = "RTSP/1.0 200 OK\nCSeq: 2\nSession: 123456\n\n";
+        int bytes_sent = send(client_fd,msg,strlen(msg),flags);
+        // error checks
+        if (bytes_sent == 0) {
+            printf("No bytes were sent or client closed connection\n");
+        } else
+        if (bytes_sent == -1) {
+        printf("There's an error while sending RTSP response: %s\n", strerror(errno));
+        printf("client_fd just after send() returns -1 = %d\n", client_fd); // to see if fd was over written
+        } else
+        if (bytes_sent < strlen(msg)) {
+            printf("Response was not completely sent\n");
+        } else {
+            printf("%d bytes were sent to the buffer\n", bytes_sent);
+        }
+
     // The following snippet is used to create and start a new timer that runs
     // every 40 ms.
     struct send_frame_data data; // Set fields as necessary
     struct sigevent play_event;
-    timer_t play_timer;
-    struct itimerspec play_interval;
-
+    
     memset(&play_event, 0, sizeof(play_event));
     play_event.sigev_notify = SIGEV_THREAD;
     play_event.sigev_value.sival_ptr = &data;
@@ -106,7 +166,26 @@ void play(int client_fd, char buf[]) {
 }
 
 /* Deals with pause request, stops the timer and deletes it
-*/ void pause(int client_fd, char buf[]) {
+*/ 
+void pauseVid(int client_fd, char buf[]) {
+    printf("code reaches pause()\n");
+
+     char *msg = "RTSP/1.0 200 OK\nCSeq: 2\nSession: 123456\n\n";
+        int bytes_sent = send(client_fd,msg,strlen(msg),flags);
+        // error checks
+        if (bytes_sent == 0) {
+            printf("No bytes were sent or client closed connection\n");
+        } else
+        if (bytes_sent == -1) {
+        printf("There's an error while sending RTSP response: %s\n", strerror(errno));
+        printf("client_fd just after send() returns -1 = %d\n", client_fd); // to see if fd was over written
+        } else
+        if (bytes_sent < strlen(msg)) {
+            printf("Response was not completely sent\n");
+        } else {
+            printf("%d bytes were sent to the buffer\n", bytes_sent);
+        }
+
     // The following snippet is used to stop a currently running timer. The current
     // task is not interrupted, only future tasks are stopped.
     play_interval.it_interval.tv_sec = 0;
@@ -116,9 +195,11 @@ void play(int client_fd, char buf[]) {
     timer_settime(play_timer, 0, &play_interval, NULL);
 
 
-    // The following line is used to delete a timer. Delete if the last frame was sent through.
+    // The following line is used to delete a timer. Delete timer & close file if the last frame was sent through.
     //timer_delete(play_timer);
-    }
+    // Close the video file
+    //cvReleaseCapture(&video);
+}
 
 /*
 * serve_client() given by CS317 instructors
@@ -159,6 +240,7 @@ void *serve_client(void *ptr) {
     } else
     if ( ('P' == buf[0]) && ('A' == buf[1]) ) { // if first letter is p and second a
         printf("deal with PAUSE...\n");
+        pauseVid(client_fd, buf);
     }
     else {
         printf("deal with PLAY...\n");
