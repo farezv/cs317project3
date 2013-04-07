@@ -59,7 +59,7 @@ void send_frame(union sigval sv_data) {
     // Obtain the next frame from the video file
     image = cvQueryFrame(video);
     if (!image) {
-      printf("Next frame doesn't exist or can't be obtained");
+      printf("Next frame doesn't exist or can't be obtained\n");
     } else {
 
     // Convert the frame to a smaller size (WIDTH x HEIGHT)
@@ -125,7 +125,7 @@ void setup(int client_fd, char buf[]) {
 
     // Open the video file.
     
-    video = cvCaptureFromFile("movie.Mjpeg");
+    video = cvCaptureFromFile("sample.avi");
     if (!video) {
         printf("File doesn't exist or can't be captured as a video file\n");
 
@@ -198,7 +198,7 @@ void play(int client_fd, char buf[]) {
 void pauseVid(int client_fd, char buf[]) {
     printf("code reaches pause()\n");
 
-     char *msg = "RTSP/1.0 200 OK\nCSeq: 2\nSession: 123456\n\n";
+     char *msg = "RTSP/1.0 200 OK\nCSeq: 3\nSession: 123456\n\n";
         int bytes_sent = send(client_fd,msg,strlen(msg),flags);
         // error checks
         if (bytes_sent == 0) {
@@ -296,6 +296,7 @@ void *serve_client(void *ptr) {
     else {
         printf("deal with PLAY...\n");
         printf("%s\n", buf);
+        //char scale[] = ; 
         play(client_fd, buf);
     }
   }
