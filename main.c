@@ -27,7 +27,7 @@
 // This struct is created to save information that will be needed by the timer,
 // such as socket file descriptors, frame numbers and video captures.
 struct send_frame_data {
-  int socket_fd;
+  int cl_fd;
   // other fields
 };
 
@@ -44,7 +44,6 @@ CvMat *encoded;
   
   int len = 512;
   int flags = 0; //Beej's reccomends it we set to zero.
-  int client_fd;
 
 // Global timer variables because pause() doesn't know what play_interval and play_timer are
   timer_t play_timer;
@@ -53,15 +52,15 @@ CvMat *encoded;
 /* This function will be called when the timer ticks 
 */
 void send_frame(union sigval sv_data) {
-  printf("code reaches send_frame()\n");
+  
   struct send_frame_data *data = (struct send_frame_data *) sv_data.sival_ptr;
     // You may retrieve information from the caller using data->field_name
     
     // Obtain the next frame from the video file
     image = cvQueryFrame(video);
     if (!image) {
-      // Next frame doesn't exist or can't be obtained.
-    }
+      printf("Next frame doesn't exist or can't be obtained");
+    } else {
 
     // Convert the frame to a smaller size (WIDTH x HEIGHT)
     thumb = cvCreateMat(240, 320, CV_8UC3);
@@ -72,23 +71,51 @@ void send_frame(union sigval sv_data) {
     encoded = cvEncodeImage(".jpeg", thumb, encodeParams);
     // After the call above, the encoded data is in encoded->data.ptr
     // and has a length of encoded->cols bytes. GCC complains about variable sized obj not being initialized
-    char* frameBuf[] = encoded->data.ptr;
-    int frameDataLength = encoded->cols;
-    int bytes_sent = send(client_fd,frameBuf,frameDataLength,flags);
+
+    // Calculate payload + RTP length
+    int payloadPlusHeader = 12 + encoded->cols;
+    // Construct RTP packet & send the prefix
+    char header[4]; // prefix of 4 bytes
+            header[0] = (char ) 0x24;
+            header[1] = (char ) 0x0;
+            header[2] = (char ) ((payloadPlusHeader & 0xFF00) >> 8); 
+            header[3] = (char ) (payloadPlusHeader & 0x00FF);
+
+        int client_fd = data->cl_fd;
+
+        int header_bytes = send(client_fd,header,4,flags);
         // error checks
-        if (bytes_sent == 0) {
+        if (header_bytes == 0) {
             printf("No bytes were sent or client closed connection\n");
         } else
-        if (bytes_sent == -1) {
-        printf("There's an error while sending RTSP response: %s\n", strerror(errno));
+        if (header_bytes == -1) {
+        printf("There's an error while sending prefix header: %s\n", strerror(errno));
         printf("client_fd just after send() returns -1 = %d\n", client_fd); // to see if fd was over written
         } else
-        if (bytes_sent < frameDataLength) {
-            printf("Frame data was not completely sent\n");
+        if (header_bytes < 4) {
+            printf("Response was not completely sent\n");
         } else {
-            printf("%d bytes were sent to the buffer\n", bytes_sent);
+            printf("%d bytes of the prefix were sent to the buffer\n", header_bytes);
         }
 
+    // Send frame data
+    char* frameBuf = encoded->data.ptr;
+    int frameDataLength = encoded->cols;
+    int data_sent = send(client_fd,frameBuf,frameDataLength,flags);
+        // error checks
+        if (data_sent == 0) {
+            printf("No bytes were sent or client closed connection\n");
+        } else
+        if (data_sent == -1) {
+        printf("There's an error while sending frame data: %s\n", strerror(errno));
+        printf("client_fd after send() returns -1 in send_frame = %d\n", client_fd); // to see if fd was over written
+        } else
+        if (data_sent < frameDataLength) {
+            printf("Frame data was not completely sent\n");
+        } else {
+            printf("%d bytes were sent to the buffer\n", data_sent);
+        }
+    }
 }
   
 /* Deals with a setup request and opens the video file.
@@ -110,7 +137,7 @@ void setup(int client_fd, char buf[]) {
             printf("No bytes were sent or client closed connection\n");
         } else
         if (bytes_sent == -1) {
-        printf("There's an error while sending RTSP response: %s\n", strerror(errno));
+        printf("There's an error while sending setup response: %s\n", strerror(errno));
         printf("client_fd just after send() returns -1 = %d\n", client_fd); // to see if fd was over written
         } else
         if (bytes_sent < strlen(msg)) {
@@ -126,26 +153,27 @@ void setup(int client_fd, char buf[]) {
 */
 void play(int client_fd, char buf[]) {
     printf("code reaches play\n");
-
+    
     char *msg = "RTSP/1.0 200 OK\nCSeq: 2\nSession: 123456\n\n";
-        int bytes_sent = send(client_fd,msg,strlen(msg),flags);
+        int response_bytes = send(client_fd,msg,strlen(msg),flags);
         // error checks
-        if (bytes_sent == 0) {
+        if (response_bytes == 0) {
             printf("No bytes were sent or client closed connection\n");
         } else
-        if (bytes_sent == -1) {
-        printf("There's an error while sending RTSP response: %s\n", strerror(errno));
+        if (response_bytes == -1) {
+        printf("There's an error while sending play response header: %s\n", strerror(errno));
         printf("client_fd just after send() returns -1 = %d\n", client_fd); // to see if fd was over written
         } else
-        if (bytes_sent < strlen(msg)) {
+        if (response_bytes < strlen(msg)) {
             printf("Response was not completely sent\n");
         } else {
-            printf("%d bytes were sent to the buffer\n", bytes_sent);
+            printf("%d bytes were sent to the buffer\n", response_bytes);
         }
 
     // The following snippet is used to create and start a new timer that runs
     // every 40 ms.
     struct send_frame_data data; // Set fields as necessary
+    data.cl_fd = client_fd;
     struct sigevent play_event;
     
     memset(&play_event, 0, sizeof(play_event));
@@ -177,7 +205,7 @@ void pauseVid(int client_fd, char buf[]) {
             printf("No bytes were sent or client closed connection\n");
         } else
         if (bytes_sent == -1) {
-        printf("There's an error while sending RTSP response: %s\n", strerror(errno));
+        printf("There's an error while sending pause response: %s\n", strerror(errno));
         printf("client_fd just after send() returns -1 = %d\n", client_fd); // to see if fd was over written
         } else
         if (bytes_sent < strlen(msg)) {
@@ -195,10 +223,32 @@ void pauseVid(int client_fd, char buf[]) {
     timer_settime(play_timer, 0, &play_interval, NULL);
 
 
-    // The following line is used to delete a timer. Delete timer & close file if the last frame was sent through.
-    //timer_delete(play_timer);
+    // The following line is used to delete a timer.
+    timer_delete(play_timer);
+    
+}
+
+/* Deals with teardown request. Close the video file (not the connection, disconnect does that)
+*/ void teardown(int client_fd, char buf[]) {
+
     // Close the video file
-    //cvReleaseCapture(&video);
+    cvReleaseCapture(&video);
+
+    char *msg = "RTSP/1.0 200 OK\nCSeq: 4\nSession: 123456\n\n";
+        int bytes_sent = send(client_fd,msg,strlen(msg),flags);
+        // error checks
+        if (bytes_sent == 0) {
+            printf("No bytes were sent or client closed connection\n");
+        } else
+        if (bytes_sent == -1) {
+        printf("There's an error while sending teardown response: %s\n", strerror(errno));
+        printf("client_fd just after send() returns -1 = %d\n", client_fd); // to see if fd was over written
+        } else
+        if (bytes_sent < strlen(msg)) {
+            printf("Response was not completely sent\n");
+        } else {
+            printf("%d bytes were sent to the buffer\n", bytes_sent);
+        }
 }
 
 /*
@@ -229,7 +279,7 @@ void *serve_client(void *ptr) {
     
     // Deal with a successful RTSP request
     
-    printf("Client: %s\n", buf);
+    printf("%c%c%c%c request recieved\n", buf[0], buf[1], buf[2], buf[3]);
     if ( 'S' == buf[0] ) {
         printf("deal with SETUP...\n");
         //const char* filename = // figure out how to get read file name from setup request
@@ -237,6 +287,7 @@ void *serve_client(void *ptr) {
     } else
     if ( 'T' == buf[0] ) {
         printf("deal with TEARDOWN...\n");
+        teardown(client_fd, buf);
     } else
     if ( ('P' == buf[0]) && ('A' == buf[1]) ) { // if first letter is p and second a
         printf("deal with PAUSE...\n");
@@ -244,6 +295,7 @@ void *serve_client(void *ptr) {
     }
     else {
         printf("deal with PLAY...\n");
+        printf("%s\n", buf);
         play(client_fd, buf);
     }
   }
